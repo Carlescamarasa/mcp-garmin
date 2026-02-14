@@ -28,3 +28,10 @@
 - Improved docstrings for every exposed tool with clearer input/output details.
 - Added `tests/test_server_tool_surface.py` to lock exposed tool list and prevent regressions.
 - Deployed updated `server.py` to VPS and validated tool list + dry-run planning flow.
+
+### Developer
+- Applied clean-cut migration to 3 tools: `garmin_health_report`, `garmin_manage_workout`, and `garmin_activity_query`.
+- Added local persistence module `scheduled_workouts_store.py` to support robust workout CRUD by date range.
+- Refactored workout management into a single action-based API (`create`, `list_scheduled`, `list_library`, `update`, `delete`, `apply_week_plan`).
+- Tightened tool docstrings with explicit input/output contracts and added regression tests for the new tool surface.
+- Added `README.md` documenting the new minimal architecture and index-based scheduling behavior.

@@ -12,6 +12,7 @@ venv/
 # Garmin Session (CRITICAL: Contains tokens)
 session.json/
 session.json
+scheduled_workouts_index.json
 
 # IDEs
 .vscode/

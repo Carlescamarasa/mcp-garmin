@@ -35,24 +35,9 @@ class ServerToolSurfaceTests(unittest.TestCase):
         tools = _mcp_tools()
 
         expected_tools = {
-            "get_daily_health",
-            "get_sleep_data",
-            "get_stress_data",
-            "get_body_battery",
-            "get_body_composition",
-            "get_training_status",
-            "get_training_readiness",
-            "get_endurance_score",
-            "get_hill_score",
-            "get_max_metrics",
-            "list_activities",
-            "get_activity_detail",
-            "get_devices",
-            "get_user_profile",
-            "get_personal_records",
-            "get_gear",
-            "get_workouts",
-            "schedule_user_week_plan",
+            "garmin_health_report",
+            "garmin_manage_workout",
+            "garmin_activity_query",
         }
         self.assertEqual(set(tools), expected_tools)
 
@@ -78,6 +63,11 @@ class ServerToolSurfaceTests(unittest.TestCase):
             "get_steps_data",
             "create_running_workout",
             "get_calendar",
+            "get_daily_health",
+            "schedule_user_week_plan",
+            "list_activities",
+            "get_activity_detail",
+            "get_workouts",
         }
         self.assertTrue(disabled_by_design.isdisjoint(set(tools)))
 
@@ -86,9 +76,11 @@ class ServerToolSurfaceTests(unittest.TestCase):
         for name, docstring in tools.items():
             self.assertGreaterEqual(
                 len(docstring.strip()),
-                30,
+                120,
                 msg=f"Tool {name} should include a more detailed docstring",
             )
+            self.assertIn("Inputs", docstring, msg=f"Tool {name} should document input arguments")
+            self.assertIn("Output", docstring, msg=f"Tool {name} should document output fields")
 
 
 if __name__ == "__main__":
