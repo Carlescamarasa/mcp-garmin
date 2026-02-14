@@ -6,4 +6,6 @@ services:
       - .:/app
     restart: unless-stopped
     container_name: garmin-mcp
-    command: tail -f /dev/null
+    command: python3 -u /app/server.py
+    stdin_open: true
+    tty: false

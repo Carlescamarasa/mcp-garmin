@@ -1,12 +1,21 @@
-import logging
 import sys
 import os
+import io
+
+# Redirect stdout to stderr for imports to avoid polluting the MCP stream
+original_stdout = sys.stdout
+sys.stdout = sys.stderr
+
+import logging
 import json
 from datetime import date, timedelta
 from typing import Optional, List, Any
 
 from mcp.server.fastmcp import FastMCP
 from garminconnect import Garmin
+
+# Restore stdout
+sys.stdout = original_stdout
 
 # Imports per a la creació de workouts
 try:
@@ -32,6 +41,7 @@ logger = logging.getLogger("garmin_mcp")
 
 # Inicialització del servidor MCP
 mcp = FastMCP("Garmin Connect MCP")
+
 
 # Global variables per a l'API
 garmin_api: Optional[Garmin] = None
@@ -384,7 +394,14 @@ def create_running_workout(name: str, duration_minutes: int, date_str: str, desc
         return {"error": str(e)}
 
 
+@mcp.tool()
+def get_calendar(date: str) -> dict:
+    """Obté el calendari per a una data (YYYY-MM-DD)."""
+    return get_garmin_client().get_calendar(date)
+
+
 if __name__ == "__main__":
+
     try:
         mcp.run()
     except Exception as e:
