@@ -17,8 +17,10 @@
     - [x] Keep weekly plan support via `garmin_manage_workout(action="apply_week_plan")`
     - [x] Make tool docstrings explicit about inputs and output fields
     - [x] Add tests for tool surface and scheduled index behavior
+    - [x] Fix `create` action so Força A/B/C use structured templates (repeat groups/circuits) instead of basic 3-step blocks
 
 ## Discovered During Work
 
 - [x] Fix unsupported `TargetType.HEART_RATE_ZONE` constant in running warmup step.
 - [x] Add AST-based test to lock MCP exposed tool list and avoid regressions.
+- [x] Garmin may return `sportType = null` for HIIT custom templates; force `cardio_training` in MCP payload for compatibility.

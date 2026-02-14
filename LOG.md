@@ -35,3 +35,9 @@
 - Refactored workout management into a single action-based API (`create`, `list_scheduled`, `list_library`, `update`, `delete`, `apply_week_plan`).
 - Tightened tool docstrings with explicit input/output contracts and added regression tests for the new tool surface.
 - Added `README.md` documenting the new minimal architecture and index-based scheduling behavior.
+
+### Developer
+- Fixed malformed strength sessions created via `garmin_manage_workout(action="create")`: Força A/B/C now map to structured workout templates with repeat groups.
+- Added `workout_payload_utils.py` to centralize payload construction and template compatibility logic.
+- Implemented sport-type compatibility fallback for HIIT template payloads to avoid Garmin returning `sportType = null`.
+- Validated on VPS with real create/delete checks: Força A/B/C now preserve circuit/repeat structure and compatible sport type.

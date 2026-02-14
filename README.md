@@ -19,6 +19,7 @@ This server now exposes only **3 MCP tools**:
      - `update`
      - `delete`
      - `apply_week_plan`
+   - `create` auto-detects `Força A/B/C` names and uses structured templates (circuits/repeat groups) instead of a generic 3-step workout.
    - Keeps an internal local index for scheduled sessions in `scheduled_workouts_index.json`.
 
 3. `garmin_activity_query`
