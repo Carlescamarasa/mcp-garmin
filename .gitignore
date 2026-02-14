@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Environment Variables
+.env
+
+# Garmin Session (CRITICAL: Contains tokens)
+session.json/
+session.json
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
