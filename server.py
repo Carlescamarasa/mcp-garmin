@@ -51,7 +51,10 @@ def get_garmin_client() -> Garmin:
         logger.info("Carregant sessió de Garmin...")
         garmin_api = Garmin()
         garmin_api.garth.load(SESSION_FILE)
-        logger.info("Sessió carregada correctament.")
+        # Populate display_name needed for health and summary endpoints
+        if not garmin_api.display_name:
+            garmin_api.display_name = garmin_api.get_user_profile().get("userName")
+        logger.info(f"Sessió carregada per a l'usuari: {garmin_api.display_name}")
         return garmin_api
     except Exception as e:
         logger.error(f"Error carregant la sessió: {e}")
@@ -273,6 +276,11 @@ def get_gear(user_profile_id: str = None) -> dict:
         return client.get_gear(user_profile_id)
     else:
         return {"error": "No s'ha pogut obtenir userProfileId automàticament."}
+
+@mcp.tool()
+def get_workouts() -> list:
+    """Obté una llista de tots els workouts de l'usuari."""
+    return get_garmin_client().get_workouts()
 
 # --- Tools de Creació d'Entrenaments ---
 
