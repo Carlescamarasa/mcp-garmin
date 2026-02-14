@@ -14,3 +14,10 @@
     - Guided user through SSH key setup.
     - Provided `mcp_config.json` snippet for SSH-based remote execution.
 - **Status**: System is operational and responding to MCP requests from Antigravity.
+
+### Developer
+- Reworked `create_user_workouts.py` to generate structured sessions with real blocks (warmup, repeat groups, cooldown).
+- Added explicit builders for Força A/B/C and Running Suau, aligned with weekly plan logic.
+- Added `--dry-run` and `--from-date` options to preview the plan safely before uploading.
+- Fixed Garmin compatibility issue by removing unsupported `TargetType.HEART_RATE_ZONE` usage.
+- Added unit tests in `tests/test_create_user_workouts.py` for structure validation and weekday scheduling.

@@ -1,409 +1,303 @@
-import sys
 import os
-import io
+import sys
+import logging
+from datetime import date
+from typing import Any, Optional
 
-# Redirect stdout to stderr for imports to avoid polluting the MCP stream
-original_stdout = sys.stdout
+# Keep stdio clean during imports (MCP uses stdout for protocol frames).
+_original_stdout = sys.stdout
 sys.stdout = sys.stderr
 
-import logging
-import json
-from datetime import date, timedelta
-from typing import Optional, List, Any
-
-from mcp.server.fastmcp import FastMCP
 from garminconnect import Garmin
+from mcp.server.fastmcp import FastMCP
 
-# Restore stdout
-sys.stdout = original_stdout
+sys.stdout = _original_stdout
 
-# Imports per a la creació de workouts
-try:
-    from garminconnect.workout import (
-        RunningWorkout, 
-        ExecutableStep,
-        TargetType, 
-        StepType, 
-        ConditionType,
-        SportType
-    )
-except ImportError as e:
-    # Fallback o gestió d'error
-    logging.warning(f"No s'han pogut importar els models de workout: {e}")
 
-# Configuració de logging a stderr
 logging.basicConfig(
     stream=sys.stderr,
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("garmin_mcp")
 
-# Inicialització del servidor MCP
 mcp = FastMCP("Garmin Connect MCP")
 
 
-# Global variables per a l'API
+SESSION_FILE = os.getenv("GARMIN_SESSION_PATH", "session.json")
 garmin_api: Optional[Garmin] = None
-SESSION_FILE = "session.json"
+
 
 def get_garmin_client() -> Garmin:
-    """Recupera o inicialitza el client de Garmin amb la sessió guardada."""
+    """Inicialitza i retorna el client Garmin amb la sessió persistent."""
     global garmin_api
-    if garmin_api:
+    if garmin_api is not None:
         return garmin_api
 
     if not os.path.exists(SESSION_FILE):
-        logger.error(f"No s'ha trobat el fitxer de sessió: {SESSION_FILE}")
-        raise FileNotFoundError("Primer has d'executar 'login_once.py' per autenticar-te.")
+        logger.error("No s'ha trobat la sessió: %s", SESSION_FILE)
+        raise FileNotFoundError("Falta session.json. Executa login_once.py primer.")
 
     try:
-        logger.info("Carregant sessió de Garmin...")
-        garmin_api = Garmin()
-        garmin_api.garth.load(SESSION_FILE)
-        
-        # Populate display_name needed for health and summary endpoints
-        if not garmin_api.display_name and garmin_api.garth.profile:
-            garmin_api.display_name = garmin_api.garth.profile.get("displayName")
-            logger.info(f"Sessió carregada per l'usuari: {garmin_api.display_name}")
-        else:
-            logger.info("Sessió carregada correctament.")
-            
-        return garmin_api
-    except Exception as e:
-        logger.error(f"Error carregant la sessió: {e}")
-        raise RuntimeError(f"Error carregant sessió Garmin: {e}. Torna a executar login_once.py.")
+        client = Garmin()
+        client.garth.load(SESSION_FILE)
 
-def _ensure_display_name(client: Garmin):
-    """Assegura que el client té el display_name configurat (necessari per a estadístiques)."""
-    if not client.display_name:
-        if client.garth.profile:
+        if not client.display_name and client.garth.profile:
             client.display_name = client.garth.profile.get("displayName")
-        else:
-            profile = client.get_user_profile()
-            client.display_name = profile.get("userName")
-        logger.info(f"Display name configurat dinàmicament: {client.display_name}")
 
-# --- Funcions auxiliars d'escriptura ---
+        garmin_api = client
+        logger.info("Sessió Garmin carregada correctament")
+        return client
+    except Exception as error:
+        logger.error("Error carregant sessió Garmin: %s", error)
+        raise RuntimeError(f"No s'ha pogut carregar la sessió Garmin: {error}")
 
-def _schedule_workout_internal(client: Garmin, workout_id: str, date_str: str) -> dict:
-    """
-    Programa un workout existent al calendari.
-    Mètode deduit: POST /workout-service/schedule/{workout_id} amb {"date": "YYYY-MM-DD"}
-    """
+
+def _ensure_display_name(client: Garmin) -> None:
+    if client.display_name:
+        return
+
+    if client.garth.profile:
+        client.display_name = client.garth.profile.get("displayName")
+        return
+
+    profile = client.get_user_profile()
+    client.display_name = profile.get("userName")
+
+
+def _schedule_workout_internal(client: Garmin, workout_id: str, date_str: str) -> dict[str, Any]:
+    """Programa un workout existent al calendari Garmin."""
     url = f"/workout-service/schedule/{workout_id}"
-    data = {"date": date_str}
-    logger.info(f"Programant workout {workout_id} per al dia {date_str} a {url}")
-    
-    try:
-        response = client.connectapi(url, method="POST", json=data)
-        return response
-    except Exception as e:
-        logger.error(f"Error programant workout: {e}")
-        raise e
+    payload = {"date": date_str}
+    return client.connectapi(url, method="POST", json=payload)
 
-# --- Tools de Salut Diària ---
+
+def _bounded_limit(limit: int) -> int:
+    if limit < 1:
+        return 1
+    if limit > 200:
+        return 200
+    return limit
+
+
+# --- Salut ---
 
 @mcp.tool()
-def get_daily_health(day: str) -> dict:
-    """Obté un resum de les estadístiques de salut principals."""
+def get_daily_health(day: str) -> dict[str, Any]:
+    """
+    Resum de salut per a `day` (YYYY-MM-DD).
+    Retorna: `sleep`, `stress`, `body_battery` i `resting_heart_rate`.
+    """
     client = get_garmin_client()
     _ensure_display_name(client)
-    try:
-        return {
-            "date": day,
-            "sleep": client.get_sleep_data(day),
-            "stress": client.get_stress_data(day),
-            "body_battery": client.get_body_battery(day),
-            "resting_heart_rate": client.get_rhr_day(day)
-        }
-    except Exception as e:
-        logger.error(f"Error a get_daily_health: {e}")
-        return {"error": str(e)}
+    return {
+        "date": day,
+        "sleep": client.get_sleep_data(day),
+        "stress": client.get_stress_data(day),
+        "body_battery": client.get_body_battery(day),
+        "resting_heart_rate": client.get_rhr_day(day),
+    }
+
 
 @mcp.tool()
-def get_sleep_data(day: str) -> dict:
+def get_sleep_data(day: str) -> dict[str, Any]:
+    """
+    Dades completes del son per a `day` (YYYY-MM-DD).
+    Inclou fases, puntuació, hores totals i resum nocturn.
+    """
     return get_garmin_client().get_sleep_data(day)
 
+
 @mcp.tool()
-def get_stress_data(day: str) -> dict:
+def get_stress_data(day: str) -> dict[str, Any]:
+    """
+    Sèrie i resum de l'estrés diari per a `day` (YYYY-MM-DD).
+    """
     return get_garmin_client().get_stress_data(day)
 
+
 @mcp.tool()
-def get_body_battery(day: str) -> dict:
+def get_body_battery(day: str) -> Any:
+    """
+    Corba de Body Battery i valors clau de recuperació per a `day` (YYYY-MM-DD).
+    """
     return get_garmin_client().get_body_battery(day)
 
+
 @mcp.tool()
-def get_body_composition(day: str) -> dict:
+def get_body_composition(day: str) -> dict[str, Any]:
+    """
+    Composició corporal (pes/greix/massa relacionada) per a `day` (YYYY-MM-DD).
+    """
     return get_garmin_client().get_body_composition(day, day)
 
-@mcp.tool()
-def get_hydration_data(day: str) -> dict:
-    return get_garmin_client().get_hydration_data(day)
+
+# --- Rendiment ---
 
 @mcp.tool()
-def get_respiration_data(day: str) -> dict:
-    return get_garmin_client().get_respiration_data(day)
-
-@mcp.tool()
-def get_spo2_data(day: str) -> dict:
-    return get_garmin_client().get_spo2_data(day)
-
-@mcp.tool()
-def get_steps_data(day: str) -> dict:
-    return get_garmin_client().get_steps_data(day)
-
-@mcp.tool()
-def get_floors(day: str) -> dict:
-    return get_garmin_client().get_floors(day)
-
-@mcp.tool()
-def get_heart_rates(day: str) -> dict:
-    return get_garmin_client().get_heart_rates(day)
-
-@mcp.tool()
-def get_user_summary(day: str) -> dict:
-    client = get_garmin_client()
-    _ensure_display_name(client)
-    return client.get_user_summary(day)
-
-@mcp.tool()
-def get_stats_and_body(day: str) -> dict:
-    client = get_garmin_client()
-    _ensure_display_name(client)
-    return client.get_stats_and_body(day)
-
-
-# --- Tools d'Entrenament i Rendiment ---
-
-@mcp.tool()
-def get_training_status(day: str) -> dict:
+def get_training_status(day: str) -> dict[str, Any]:
+    """
+    Estat d'entrenament de Garmin per a `day` (YYYY-MM-DD).
+    Exemple: productive, maintaining, recovery, etc.
+    """
     return get_garmin_client().get_training_status(day)
 
+
 @mcp.tool()
-def get_training_readiness(day: str) -> dict:
+def get_training_readiness(day: str) -> dict[str, Any]:
+    """
+    Readiness score i factors de preparació per a `day` (YYYY-MM-DD).
+    """
     return get_garmin_client().get_training_readiness(day)
 
-@mcp.tool()
-def get_endurance_score(day: str) -> dict:
-    try:
-        return get_garmin_client().get_endurance_score(day, day)
-    except:
-        return get_garmin_client().get_endurance_score(day) 
 
 @mcp.tool()
-def get_hill_score(day: str) -> dict:
+def get_endurance_score(day: str) -> dict[str, Any]:
+    """
+    Endurance score per a `day` (YYYY-MM-DD).
+    Usa mode dia únic i fallback compatible segons versió de llibreria.
+    """
+    client = get_garmin_client()
     try:
-        return get_garmin_client().get_hill_score(day, day)
-    except:
-        return get_garmin_client().get_hill_score(day)
+        return client.get_endurance_score(day, day)
+    except Exception:
+        return client.get_endurance_score(day)
+
 
 @mcp.tool()
-def get_max_metrics(day: str) -> dict:
+def get_hill_score(day: str) -> dict[str, Any]:
+    """
+    Hill score per a `day` (YYYY-MM-DD).
+    Usa mode dia únic i fallback compatible segons versió de llibreria.
+    """
+    client = get_garmin_client()
+    try:
+        return client.get_hill_score(day, day)
+    except Exception:
+        return client.get_hill_score(day)
+
+
+@mcp.tool()
+def get_max_metrics(day: str) -> dict[str, Any]:
+    """
+    Mètriques de rendiment màxim (p. ex. VO2max i associades) per a `day`.
+    """
     return get_garmin_client().get_max_metrics(day)
 
 
-# --- Tools d'Activitat ---
+# --- Activitats ---
 
 @mcp.tool()
-def list_activities(from_date: str, to_date: str, limit: int = 20) -> dict:
-    client = get_garmin_client()
-    try:
-        activities = client.get_activities_by_date(from_date, to_date)
-        return {"activities": activities[:limit], "count": len(activities[:limit])}
-    except Exception as e:
-        logger.error(f"Error llistant activitats: {e}")
-        return {"error": str(e)}
+def list_activities(from_date: str, to_date: str, limit: int = 20) -> dict[str, Any]:
+    """
+    Llista activitats entre `from_date` i `to_date` (YYYY-MM-DD).
+    Retorna `count` i `activities` (items complets de Garmin), limitat a màxim 200.
+    """
+    activities = get_garmin_client().get_activities_by_date(from_date, to_date)
+    safe_limit = _bounded_limit(limit)
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "count": len(activities[:safe_limit]),
+        "activities": activities[:safe_limit],
+    }
+
 
 @mcp.tool()
-def get_activity_detail(activity_id: str) -> dict:
+def get_activity_detail(activity_id: str) -> dict[str, Any]:
+    """
+    Detall complet d'una activitat per `activity_id`.
+    Inclou distància, temps, HR, mapes i mètriques agregades.
+    """
     return get_garmin_client().get_activity(activity_id)
 
-@mcp.tool()
-def get_activity_splits(activity_id: str) -> dict:
-    return get_garmin_client().get_activity_splits(activity_id)
+
+# --- Perfil i dispositius ---
 
 @mcp.tool()
-def get_activity_weather(activity_id: str) -> dict:
-    return get_garmin_client().get_activity_weather(activity_id)
-
-@mcp.tool()
-def get_activity_hr_zones(activity_id: str) -> dict:
-    return get_garmin_client().get_activity_hr_in_timezones(activity_id)
-
-@mcp.tool()
-def get_activity_power_zones(activity_id: str) -> dict:
-    """Obté el temps en zones de potència per a una activitat."""
-    return get_garmin_client().get_activity_power_in_timezones(activity_id)
-
-@mcp.tool()
-def download_activity_file(activity_id: str, format: str = "ORIGINAL") -> dict:
+def get_devices() -> list[dict[str, Any]]:
     """
-    Descarrega el fitxer original de l'activitat (normalment ZIP contenint FIT).
-    Retorna els bytes codificats en base64 o guarda a disc (per MCP millor retornar path o status).
-    Aquí guardarem a disc temporalment i retornarem el path.
+    Llista dispositius Garmin associats al compte.
     """
-    import base64
-    client = get_garmin_client()
-    try:
-        # El mètode download_activity retorna bytes
-        data = client.download_activity(activity_id, dl_fmt=client.ActivityDownloadFormat[format])
-        
-        # Guardem localment amb nom segur
-        filename = f"activity_{activity_id}.zip"
-        with open(filename, "wb") as f:
-            f.write(data)
-            
-        return {
-            "status": "success", 
-            "filename": filename, 
-            "size": len(data),
-            "message": "Fitxer descarregat al directori del servidor."
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# --- Tools d'Usuari i Dispositius ---
-
-@mcp.tool()
-def get_devices() -> dict:
     return get_garmin_client().get_devices()
 
-@mcp.tool()
-def get_device_settings(device_id: str) -> dict:
-    return get_garmin_client().get_device_settings(device_id)
 
 @mcp.tool()
-def get_device_last_used() -> dict:
-    return get_garmin_client().get_device_last_used()
-
-@mcp.tool()
-def get_user_profile() -> dict:
+def get_user_profile() -> dict[str, Any]:
+    """
+    Perfil d'usuari (id, sexe, altura, pes, preferències i dades bàsiques del compte).
+    """
     return get_garmin_client().get_user_profile()
 
-@mcp.tool()
-def get_privacy_settings() -> dict:
-    return get_garmin_client().get_userprofile_settings()
 
 @mcp.tool()
-def get_personal_records() -> dict:
+def get_personal_records() -> dict[str, Any]:
+    """
+    Rècords personals reconeguts per Garmin (running/cycling i variants disponibles).
+    """
     return get_garmin_client().get_personal_record()
 
-@mcp.tool()
-def get_badges() -> dict:
-    return get_garmin_client().get_earned_badges()
 
 @mcp.tool()
-def get_gear(user_profile_id: str = None) -> dict:
+def get_gear(user_profile_id: Optional[str] = None) -> dict[str, Any]:
+    """
+    Equipament del compte (sabatilles, bici, etc.).
+    Si no envies `user_profile_id`, s'obté automàticament del perfil.
+    """
     client = get_garmin_client()
-    if not user_profile_id:
+    profile_id = user_profile_id
+
+    if not profile_id:
         profile = client.get_user_profile()
-        user_profile_id = profile.get("userProfileId")
-    
-    if user_profile_id:
-        return client.get_gear(user_profile_id)
-    else:
-        return {"error": "No s'ha pogut obtenir userProfileId automàticament."}
+        profile_id = profile.get("userProfileId")
+
+    if not profile_id:
+        return {"error": "No s'ha pogut obtenir userProfileId."}
+
+    return client.get_gear(profile_id)
+
 
 @mcp.tool()
-def get_workouts() -> list:
-    """Obté una llista de tots els workouts de l'usuari."""
+def get_workouts() -> Any:
+    """
+    Llista workouts guardats al compte Garmin.
+    Retorna metadades com `workoutId`, nom, esport i dates de creació/actualització.
+    """
     return get_garmin_client().get_workouts()
 
-# --- Tools de Creació d'Entrenaments ---
+
+# --- Planificador setmanal ---
 
 @mcp.tool()
-def create_running_workout(name: str, duration_minutes: int, date_str: str, description: str = "") -> dict:
+def schedule_user_week_plan(from_date: Optional[str] = None, dry_run: bool = False) -> dict[str, Any]:
     """
-    Crea un entrenament de carrera simple i el programa al calendari.
+    Crea i programa el pla setmanal estructurat (Força A/B/C + Running Suau).
+
+    Inputs:
+    - `from_date` opcional (YYYY-MM-DD) per calcular la setmana a partir d'eixa data.
+    - `dry_run=True` per previsualitzar passos i dates sense crear res a Garmin.
+
+    Output:
+    - `items` amb cada sessió, data objectiu i resultat (o estructura prevista en dry-run).
     """
-    client = get_garmin_client()
-    logger.info(f"Creant workout '{name}' ({duration_minutes} min) per al dia {date_str}...")
-    
-    try:
-        duration_seconds = float(duration_minutes * 60)
-        
-        # Construim el pas del workout manualment o amb helpers
-        step = ExecutableStep(
-            stepOrder=1,
-            stepType={
-                "stepTypeId": StepType.INTERVAL, # Usant constant correcta
-                "stepTypeKey": "interval", 
-                "displayOrder": 3
-            },
-            description=description or name,
-            endCondition={
-                "conditionTypeId": ConditionType.TIME,
-                "conditionTypeKey": "time",
-                 "displayOrder": 2,
-                 "displayable": True
-            },
-            endConditionValue=duration_seconds,
-            targetType={
-                "workoutTargetTypeId": TargetType.NO_TARGET, 
-                "workoutTargetTypeKey": "no.target",
-                "displayOrder": 1
-            }
-        )
-        
-        # Segment
-        segment = {
-            "segmentOrder": 1,
-            "sportType": {
-                "sportTypeId": SportType.RUNNING, 
-                "sportTypeKey": "running",
-                "displayOrder": 1
-            },
-            "workoutSteps": [step]
-        }
+    from create_user_workouts import run_plan
 
-        # Workout
-        # RunningWorkout té sportType per defecte, però workoutSegments és obligatori
-        workout = RunningWorkout(
-            workoutName=name,
-            description=description,
-            estimatedDurationInSecs=int(duration_seconds),
-            workoutSegments=[segment]
-        )
-        
-        # Upload
-        workout_json = workout.model_dump(exclude_none=True, mode="json")
-        logger.info("Pujant workout a Garmin...")
-        response = client.upload_workout(workout_json)
-        
-        workout_id = response.get("workoutId")
-        if not workout_id:
-            logger.error(f"No s'ha obtingut workoutId a la resposta: {response}")
-            return {"error": "Upload fallit, no workoutId", "response": response}
-            
-        logger.info(f"Workout creat amb ID: {workout_id}. Programant al calendari...")
-        
-        # Schedule
-        schedule_response = _schedule_workout_internal(client, str(workout_id), date_str)
-        
-        return {
-            "status": "success",
-            "workoutId": workout_id,
-            "scheduled_date": date_str,
-            "schedule_response": schedule_response
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creant/programant workout: {e}")
-        return {"error": str(e)}
+    reference_date = date.today()
+    if from_date:
+        reference_date = date.fromisoformat(from_date)
 
-
-@mcp.tool()
-def get_calendar(date: str) -> dict:
-    """Obté el calendari per a una data (YYYY-MM-DD)."""
-    return get_garmin_client().get_calendar(date)
+    items = run_plan(reference_date=reference_date, dry_run=dry_run)
+    return {
+        "status": "success",
+        "dry_run": dry_run,
+        "count": len(items),
+        "items": items,
+    }
 
 
 if __name__ == "__main__":
-
     try:
         mcp.run()
-    except Exception as e:
-        logger.critical(f"Error fatal al servidor: {e}")
+    except Exception as error:
+        logger.critical("Error fatal al servidor: %s", error)
         sys.exit(1)
