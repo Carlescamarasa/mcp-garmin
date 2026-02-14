@@ -15,7 +15,7 @@
     Copy your local `session.json` to the VPS securely.
     **CRITICAL**: `session.json` is NOT in the repository. You must copy it manually.
     ```bash
-    scp session.json user@your-vps:/path/to/secretaria-garmin-mcp/session.json
+    scp -r session.json user@your-vps:/path/to/secretaria-garmin-mcp/session.json
     ```
 
 ## 2. Docker Deployment
