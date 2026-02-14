@@ -51,7 +51,14 @@ def get_garmin_client() -> Garmin:
         logger.info("Carregant sessió de Garmin...")
         garmin_api = Garmin()
         garmin_api.garth.load(SESSION_FILE)
-        logger.info("Sessió carregada correctament.")
+        
+        # Populate display_name needed for health and summary endpoints
+        if not garmin_api.display_name and garmin_api.garth.profile:
+            garmin_api.display_name = garmin_api.garth.profile.get("displayName")
+            logger.info(f"Sessió carregada per l'usuari: {garmin_api.display_name}")
+        else:
+            logger.info("Sessió carregada correctament.")
+            
         return garmin_api
     except Exception as e:
         logger.error(f"Error carregant la sessió: {e}")
@@ -60,8 +67,11 @@ def get_garmin_client() -> Garmin:
 def _ensure_display_name(client: Garmin):
     """Assegura que el client té el display_name configurat (necessari per a estadístiques)."""
     if not client.display_name:
-        profile = client.get_user_profile()
-        client.display_name = profile.get("userName")
+        if client.garth.profile:
+            client.display_name = client.garth.profile.get("displayName")
+        else:
+            profile = client.get_user_profile()
+            client.display_name = profile.get("userName")
         logger.info(f"Display name configurat dinàmicament: {client.display_name}")
 
 # --- Funcions auxiliars d'escriptura ---
