@@ -377,7 +377,6 @@ def create_running_workout(name: str, duration_minutes: int, date_str: str, desc
 if __name__ == "__main__":
     logger.info("Iniciant servidor Garmin Connect MCP (Reader + Writer)...")
     try:
-        get_garmin_client()
         mcp.run()
     except Exception as e:
         logger.critical(f"Error fatal al servidor: {e}")
