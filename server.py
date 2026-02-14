@@ -51,14 +51,18 @@ def get_garmin_client() -> Garmin:
         logger.info("Carregant sessió de Garmin...")
         garmin_api = Garmin()
         garmin_api.garth.load(SESSION_FILE)
-        # Populate display_name needed for health and summary endpoints
-        if not garmin_api.display_name:
-            garmin_api.display_name = garmin_api.get_user_profile().get("userName")
-        logger.info(f"Sessió carregada per a l'usuari: {garmin_api.display_name}")
+        logger.info("Sessió carregada correctament.")
         return garmin_api
     except Exception as e:
         logger.error(f"Error carregant la sessió: {e}")
         raise RuntimeError(f"Error carregant sessió Garmin: {e}. Torna a executar login_once.py.")
+
+def _ensure_display_name(client: Garmin):
+    """Assegura que el client té el display_name configurat (necessari per a estadístiques)."""
+    if not client.display_name:
+        profile = client.get_user_profile()
+        client.display_name = profile.get("userName")
+        logger.info(f"Display name configurat dinàmicament: {client.display_name}")
 
 # --- Funcions auxiliars d'escriptura ---
 
@@ -84,6 +88,7 @@ def _schedule_workout_internal(client: Garmin, workout_id: str, date_str: str) -
 def get_daily_health(day: str) -> dict:
     """Obté un resum de les estadístiques de salut principals."""
     client = get_garmin_client()
+    _ensure_display_name(client)
     try:
         return {
             "date": day,
@@ -138,11 +143,15 @@ def get_heart_rates(day: str) -> dict:
 
 @mcp.tool()
 def get_user_summary(day: str) -> dict:
-    return get_garmin_client().get_user_summary(day)
+    client = get_garmin_client()
+    _ensure_display_name(client)
+    return client.get_user_summary(day)
 
 @mcp.tool()
 def get_stats_and_body(day: str) -> dict:
-    return get_garmin_client().get_stats_and_body(day)
+    client = get_garmin_client()
+    _ensure_display_name(client)
+    return client.get_stats_and_body(day)
 
 
 # --- Tools d'Entrenament i Rendiment ---

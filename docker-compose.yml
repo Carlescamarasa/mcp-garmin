@@ -3,7 +3,7 @@ services:
   app:
     build: .
     volumes:
-      - ./session.json:/app/session.json
+      - .:/app
     restart: unless-stopped
     container_name: garmin-mcp
     command: tail -f /dev/null
