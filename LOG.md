@@ -21,3 +21,10 @@
 - Added `--dry-run` and `--from-date` options to preview the plan safely before uploading.
 - Fixed Garmin compatibility issue by removing unsupported `TargetType.HEART_RATE_ZONE` usage.
 - Added unit tests in `tests/test_create_user_workouts.py` for structure validation and weekday scheduling.
+
+### Developer
+- Simplified `server.py` to a lean tool surface (18 core tools) and removed redundant tool exposure.
+- Confirmed `create_running_workout` is no longer exposed as an MCP tool.
+- Improved docstrings for every exposed tool with clearer input/output details.
+- Added `tests/test_server_tool_surface.py` to lock exposed tool list and prevent regressions.
+- Deployed updated `server.py` to VPS and validated tool list + dry-run planning flow.
