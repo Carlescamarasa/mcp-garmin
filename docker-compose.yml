@@ -6,3 +6,4 @@ services:
       - ./session.json:/app/session.json
     restart: unless-stopped
     container_name: garmin-mcp
+    command: tail -f /dev/null
