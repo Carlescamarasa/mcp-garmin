@@ -111,6 +111,7 @@ def garmin_manage_workout(
     limit: int = 100,
     from_date: Optional[str] = None,
     dry_run: bool = False,
+    steps: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """
     CRUD granular de sessions i gestio de pla setmanal amb una sola tool.
@@ -120,6 +121,7 @@ def garmin_manage_workout(
     - `workout_id`: necessari en `update` i `delete`.
     - `date`: data (YYYY-MM-DD) per `create` o per reprogramar en `update`.
     - `name`, `description`, `sport_type`, `duration_minutes`: camps de creacio/edicio.
+    - `steps`: llista opcional de passos estructurats per `create` i `update` (reps, temps, descansos, repeat groups).
     - `start_date`, `end_date`, `status`, `start`, `limit`: paràmetres de consulta.
     - `from_date`, `dry_run`: controlen l'accio `apply_week_plan`.
 
@@ -147,6 +149,7 @@ def garmin_manage_workout(
             limit=limit,
             from_date=from_date,
             dry_run=dry_run,
+            steps=steps,
             index_file=WORKOUT_INDEX_FILE,
             schedule_workout_fn=_schedule_workout_internal,
             weekly_plan_runner=lambda reference_date, is_dry_run: run_plan(

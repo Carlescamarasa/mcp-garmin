@@ -18,6 +18,19 @@
     - [x] Make tool docstrings explicit about inputs and output fields
     - [x] Add tests for tool surface and scheduled index behavior
     - [x] Fix `create` action so Força A/B/C use structured templates (repeat groups/circuits) instead of basic 3-step blocks
+    - [x] Add strict HIIT create attempts (id180/id33) with explicit error when Garmin persists null sport type
+    - [x] Revert HIIT strict failure to stable cardio fallback with explicit warning (`requestedSportType` vs `appliedSportType`)
+
+- [x] Add structured workout steps support to `garmin_manage_workout`
+    - [x] Extend MCP schema with optional `steps` argument in `create` action
+    - [x] Map `steps` (reps/time/rest/repeat groups) to Garmin workout JSON payload
+    - [x] Add unit tests for expected, edge, and invalid step payloads
+    - [x] Update README docs for the new structured steps workflow
+
+- [x] Extend structured steps behavior to `update` action
+    - [x] Apply `steps` payload to PUT update so existing workouts can change internal structure
+    - [x] Add regression test for update with structured steps
+    - [x] Update docs to state `update` also supports `steps`
 
 ## Discovered During Work
 

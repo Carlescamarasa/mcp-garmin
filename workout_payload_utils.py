@@ -13,6 +13,7 @@ from garminconnect.workout import (
     TargetType,
     WorkoutSegment,
 )
+from structured_workout_steps import build_structured_steps_payload
 
 
 SPORT_TYPE_MAP: dict[str, dict[str, Any]] = {
@@ -144,11 +145,26 @@ def _make_time_step(description: str, seconds: int, step_order: int, step_type: 
     return step
 
 
-def build_workout_payload(name: str, description: str, sport_label: str, duration_minutes: int) -> dict[str, Any]:
+def build_workout_payload(
+    name: str,
+    description: str,
+    sport_label: str,
+    duration_minutes: int,
+    steps: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     if not name.strip():
         raise ValueError("name is required")
     if not description.strip():
         raise ValueError("description is required")
+
+    if steps is not None:
+        return build_structured_steps_payload(
+            name=name,
+            description=description,
+            sport=sport_payload(sport_label),
+            duration_minutes=duration_minutes,
+            steps=steps,
+        )
 
     if sport_label == "STRENGTH":
         template_payload = _build_strength_template_payload(name, description)
@@ -165,7 +181,7 @@ def build_workout_payload(name: str, description: str, sport_label: str, duratio
         cooldown_seconds = 2 * 60
         main_seconds = total_seconds - warmup_seconds - cooldown_seconds
 
-    steps: list[ExecutableStep | RepeatGroup] = [
+    default_steps: list[ExecutableStep | RepeatGroup] = [
         _make_time_step("Escalfament", warmup_seconds, 1, StepType.WARMUP, "warmup"),
         _make_time_step("Bloc principal", main_seconds, 2, StepType.INTERVAL, "interval"),
         _make_time_step("Tornada a la calma", cooldown_seconds, 3, StepType.COOLDOWN, "cooldown"),
@@ -179,7 +195,7 @@ def build_workout_payload(name: str, description: str, sport_label: str, duratio
             "sportTypeKey": sport["sportTypeKey"],
             "displayOrder": sport["displayOrder"],
         },
-        workoutSteps=cast(list[ExecutableStep | RepeatGroup], steps),
+        workoutSteps=cast(list[ExecutableStep | RepeatGroup], default_steps),
     )
 
     if sport_label == "RUNNING":

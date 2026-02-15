@@ -41,6 +41,20 @@ def _upsert_index_entry(
     )
 
 
+def _infer_duration_minutes_from_workout(workout: dict[str, Any], fallback_minutes: int) -> int:
+    estimated_seconds = workout.get("estimatedDurationInSecs")
+    try:
+        seconds_value = int(estimated_seconds)
+    except (TypeError, ValueError):
+        seconds_value = 0
+
+    if seconds_value <= 0:
+        return bounded(fallback_minutes, 10, 480)
+
+    estimated_minutes = max(1, round(seconds_value / 60))
+    return bounded(estimated_minutes, 10, 480)
+
+
 def manage_workout(
     client: Garmin,
     *,
@@ -58,6 +72,7 @@ def manage_workout(
     limit: int = 100,
     from_date: Optional[str] = None,
     dry_run: bool = False,
+    steps: Optional[list[dict[str, Any]]] = None,
     index_file: str = "scheduled_workouts_index.json",
     schedule_workout_fn: Optional[Callable[[Garmin, str, str], dict[str, Any]]] = None,
     weekly_plan_runner: Optional[Callable[[dt_date, bool], list[dict[str, Any]]]] = None,
@@ -70,11 +85,30 @@ def manage_workout(
         target_date = parse_iso_date("date", workout_date)
         if not name or not name.strip():
             raise ValueError("name is required for action=create")
-        if not description or not description.strip():
-            raise ValueError("description is required for action=create")
 
-        sport_label = normalize_sport_type(sport_type, default="STRENGTH")
-        payload = build_workout_payload(name, description, sport_label, duration_minutes)
+        has_structured_steps = steps is not None
+        if not has_structured_steps and (not description or not description.strip()):
+            raise ValueError("description is required for action=create")
+        effective_description = (
+            description.strip() if isinstance(description, str) and description.strip() else "Entrenament estructurat"
+        )
+
+        requested_sport_label = normalize_sport_type(sport_type, default="STRENGTH")
+        applied_sport_label = "CARDIO" if requested_sport_label == "HIIT" else requested_sport_label
+        warning: Optional[str] = None
+        if requested_sport_label == "HIIT":
+            warning = (
+                "Garmin no persisteix de forma fiable workouts personalitzats amb tipus HIIT en aquest compte. "
+                "S'ha aplicat cardio_training per assegurar que la sessio es cree i funcione al calendari."
+            )
+
+        payload = build_workout_payload(
+            name,
+            effective_description,
+            applied_sport_label,
+            duration_minutes,
+            steps=steps,
+        )
         upload_response = client.upload_workout(payload)
 
         workout_id_value = upload_response.get("workoutId")
@@ -85,13 +119,13 @@ def manage_workout(
         schedule_response = schedule_workout_fn(client, workout_id_str, target_date)
         payload_sport = payload.get("sportType")
         payload_sport_key = payload_sport.get("sportTypeKey") if isinstance(payload_sport, dict) else None
-        stored_sport_key = payload_sport_key or SPORT_TYPE_MAP[sport_label]["sportTypeKey"]
+        stored_sport_key = payload_sport_key or SPORT_TYPE_MAP[applied_sport_label]["sportTypeKey"]
 
         _upsert_index_entry(
             index_file,
             workout_id=workout_id_str,
             workout_name=name,
-            description=description,
+            description=effective_description,
             scheduled_date=target_date,
             sport_type_key=stored_sport_key,
             last_action="create",
@@ -104,8 +138,12 @@ def manage_workout(
             "workoutName": name,
             "scheduledDate": target_date,
             "sportType": stored_sport_key,
+            "requestedSportType": SPORT_TYPE_MAP[requested_sport_label]["sportTypeKey"],
+            "appliedSportType": stored_sport_key,
+            "structuredStepsApplied": has_structured_steps,
             "message": "Workout creat i programat correctament.",
             "scheduleResponse": schedule_response,
+            "warning": warning,
         }
 
     if normalized_action == "list_scheduled":
@@ -183,7 +221,17 @@ def manage_workout(
 
         new_name = name.strip() if name else current_name
         new_description = description if description is not None else current_description
-        new_sport_label = normalize_sport_type(sport_type, default=current_sport_label)
+        has_structured_steps = steps is not None
+        if has_structured_steps and (not isinstance(new_description, str) or not new_description.strip()):
+            new_description = "Entrenament estructurat"
+        requested_new_sport_label = normalize_sport_type(sport_type, default=current_sport_label)
+        new_sport_label = "CARDIO" if requested_new_sport_label == "HIIT" else requested_new_sport_label
+        warning_update: Optional[str] = None
+        if requested_new_sport_label == "HIIT":
+            warning_update = (
+                "Garmin no persisteix de forma fiable workouts personalitzats amb tipus HIIT en aquest compte. "
+                "S'ha aplicat cardio_training per assegurar compatibilitat."
+            )
 
         changed_fields: list[str] = []
         if new_name != current_name:
@@ -194,6 +242,8 @@ def manage_workout(
             changed_fields.append("sport_type")
         if target_date and target_date != current_date:
             changed_fields.append("date")
+        if has_structured_steps:
+            changed_fields.append("steps")
 
         if not changed_fields:
             return {
@@ -202,16 +252,34 @@ def manage_workout(
                 "workoutId": str(workout_id),
                 "changedFields": [],
                 "message": "No hi ha canvis per aplicar.",
+                "requestedSportType": SPORT_TYPE_MAP[requested_new_sport_label]["sportTypeKey"],
+                "appliedSportType": SPORT_TYPE_MAP[new_sport_label]["sportTypeKey"],
+                "structuredStepsApplied": False,
+                "warning": warning_update,
             }
+
+        update_duration_minutes = _infer_duration_minutes_from_workout(current, duration_minutes)
+        structured_payload: Optional[dict[str, Any]] = None
+        if has_structured_steps:
+            structured_payload = build_workout_payload(
+                new_name,
+                str(new_description),
+                new_sport_label,
+                update_duration_minutes,
+                steps=steps,
+            )
 
         if "date" in changed_fields:
             if not target_date:
                 raise ValueError("Cannot change date because no target date was resolved")
 
-            upload_payload = sanitize_for_upload(current)
-            upload_payload["workoutName"] = new_name
-            upload_payload["description"] = new_description
-            apply_sport_to_payload(upload_payload, new_sport_label)
+            if structured_payload is not None:
+                upload_payload = dict(structured_payload)
+            else:
+                upload_payload = sanitize_for_upload(current)
+                upload_payload["workoutName"] = new_name
+                upload_payload["description"] = new_description
+                apply_sport_to_payload(upload_payload, new_sport_label)
 
             created = client.upload_workout(upload_payload)
             new_workout_id = created.get("workoutId")
@@ -242,12 +310,24 @@ def manage_workout(
                 "changedFields": changed_fields,
                 "message": "Workout actualitzat i reprogramat amb reemplacament intern.",
                 "scheduleResponse": schedule_response,
+                "requestedSportType": SPORT_TYPE_MAP[requested_new_sport_label]["sportTypeKey"],
+                "appliedSportType": SPORT_TYPE_MAP[new_sport_label]["sportTypeKey"],
+                "structuredStepsApplied": has_structured_steps,
+                "warning": warning_update,
             }
 
         update_payload = sanitize_for_update(current)
-        update_payload["workoutName"] = new_name
-        update_payload["description"] = new_description
-        apply_sport_to_payload(update_payload, new_sport_label)
+        if structured_payload is not None:
+            update_payload["workoutName"] = structured_payload["workoutName"]
+            update_payload["description"] = structured_payload["description"]
+            update_payload["estimatedDurationInSecs"] = structured_payload["estimatedDurationInSecs"]
+            update_payload["workoutSegments"] = structured_payload["workoutSegments"]
+            update_payload["sportType"] = structured_payload["sportType"]
+            apply_sport_to_payload(update_payload, new_sport_label)
+        else:
+            update_payload["workoutName"] = new_name
+            update_payload["description"] = new_description
+            apply_sport_to_payload(update_payload, new_sport_label)
         client.connectapi(f"/workout-service/workout/{workout_id}", method="PUT", json=update_payload)
 
         if current_date:
@@ -268,6 +348,10 @@ def manage_workout(
             "changedFields": changed_fields,
             "scheduledDate": current_date,
             "message": "Workout actualitzat correctament.",
+            "requestedSportType": SPORT_TYPE_MAP[requested_new_sport_label]["sportTypeKey"],
+            "appliedSportType": SPORT_TYPE_MAP[new_sport_label]["sportTypeKey"],
+            "structuredStepsApplied": has_structured_steps,
+            "warning": warning_update,
         }
 
     if normalized_action == "delete":

@@ -41,3 +41,26 @@
 - Added `workout_payload_utils.py` to centralize payload construction and template compatibility logic.
 - Implemented sport-type compatibility fallback for HIIT template payloads to avoid Garmin returning `sportType = null`.
 - Validated on VPS with real create/delete checks: Força A/B/C now preserve circuit/repeat structure and compatible sport type.
+
+### Developer
+- Added strict HIIT workflow in `garmin_manage_workout(action="create", sport_type="HIIT")`: tries Garmin ids 180 and 33.
+- If Garmin persists HIIT as null/non-hiit, the temporary workouts are deleted and the tool now returns an explicit error (no silent downgrade to HIIT-null).
+- Reverse-engineered user TEST entries: they are activities (not workouts) with activity ids `21870440239` (TEST FORÇA) and `21870435654` (TEST HIIT).
+
+### Developer
+- Cleaned Garmin workout library completely (remote account): all custom workouts deleted and local schedule index reset.
+- Switched HIIT creation behavior back to stable cardio fallback with explicit response metadata.
+- `garmin_manage_workout(action="create", sport_type="HIIT")` now returns `requestedSportType="hiit"`, `appliedSportType="cardio_training"`, and a warning message.
+- Revalidated end-to-end on VPS: HIIT create succeeds, persists as `cardio_training`, and no orphan test workouts remain.
+
+## 2026-02-15
+### Developer
+- Added `steps` support to `garmin_manage_workout` so structured reps/time/rest blocks are converted into Garmin workout step JSON.
+- Implemented a new parser module (`structured_workout_steps.py`) with validation, alias mapping, repeat-group recursion, and duration estimation.
+- Updated create flow so structured workouts can be created even without explicit `description` (fallback description is auto-applied).
+- Added unit tests in `tests/test_structured_workout_steps.py` covering expected mapping, repeat-group edge case, and invalid payload errors.
+
+### Developer
+- Extended `garmin_manage_workout(action="update")` to accept `steps` and apply them to Garmin PUT payloads, enabling real restructuring of existing workouts.
+- Added update-specific response metadata (`structuredStepsApplied`) and duration inference from existing workout data.
+- Added regression coverage for update with structured steps in `tests/test_structured_workout_steps.py`.
