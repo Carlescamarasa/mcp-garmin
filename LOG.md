@@ -70,3 +70,9 @@
 - Implemented parser for round exercise tokens (`12 Squats`, `10 Rem`, `30s Planxa`) so rounds are split into ordered exercise steps instead of duplicated combined blocks.
 - Refactored shorthand normalization into `round_shorthand_normalizer.py` to keep module size below project limits.
 - Added `test_round_shorthand_is_collapsed_into_repeat_group` to validate the new behavior end to end.
+
+### Developer
+- Relaxed sport normalization to accept Garmin aliases (`CARDIO_TRAINING`, `cardio-training`, `strength training`) while preserving MCP canonical enums.
+- Added compatibility parser for legacy repeat containers (`stepType: "repeat"` + `repeatIterations`) and mapped them to Garmin `RepeatGroupDTO`.
+- Added `durationType: "lap_button"` support for open steps (LAP-advance), with safe payload mapping.
+- Expanded tests to cover alias normalization, legacy repeat parsing, lap-button steps, and update flow compatibility.

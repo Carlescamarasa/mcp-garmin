@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
-from workout_payload_utils import build_workout_payload
+from workout_payload_utils import build_workout_payload, normalize_sport_type
 from workout_tools import manage_workout
 
 
@@ -75,6 +75,11 @@ class _FakeGarminClient:
 
 
 class StructuredWorkoutStepsTests(unittest.TestCase):
+    def test_normalize_sport_type_accepts_garmin_aliases(self):
+        self.assertEqual(normalize_sport_type("CARDIO_TRAINING"), "CARDIO")
+        self.assertEqual(normalize_sport_type("cardio-training"), "CARDIO")
+        self.assertEqual(normalize_sport_type("strength training"), "STRENGTH")
+
     def test_build_payload_maps_reps_and_time_steps(self):
         payload = build_workout_payload(
             name="Forca A",
@@ -160,6 +165,77 @@ class StructuredWorkoutStepsTests(unittest.TestCase):
                     }
                 ],
             )
+
+    def test_build_payload_accepts_repeat_legacy_shape(self):
+        payload = build_workout_payload(
+            name="Forca B",
+            description="Bloc principal en rondes",
+            sport_label="CARDIO",
+            duration_minutes=45,
+            steps=[
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 300,
+                    "description": "Escalfament",
+                },
+                {
+                    "stepType": "repeat",
+                    "repeatIterations": 3,
+                    "steps": [
+                        {
+                            "type": "workout_step",
+                            "durationType": "reps",
+                            "durationValue": 12,
+                            "description": "Flexions",
+                        },
+                        {
+                            "type": "workout_step",
+                            "durationType": "time",
+                            "durationValue": 60,
+                            "description": "Descans",
+                        },
+                    ],
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 180,
+                    "description": "Tornada a la calma",
+                },
+            ],
+        )
+
+        steps = payload["workoutSegments"][0]["workoutSteps"]
+        self.assertEqual(steps[1]["type"], "RepeatGroupDTO")
+        self.assertEqual(steps[1]["numberOfIterations"], 3)
+        self.assertEqual(steps[1]["workoutSteps"][0]["description"], "Flexions")
+
+    def test_build_payload_accepts_lap_button_open_step(self):
+        payload = build_workout_payload(
+            name="Forca C",
+            description="Escalfament obert",
+            sport_label="STRENGTH",
+            duration_minutes=45,
+            steps=[
+                {
+                    "type": "workout_step",
+                    "stepType": "warmup",
+                    "durationType": "lap_button",
+                    "description": "Escalfament fins LAP",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "reps",
+                    "durationValue": 10,
+                    "description": "Sentadilla",
+                },
+            ],
+        )
+
+        first_step = payload["workoutSegments"][0]["workoutSteps"][0]
+        self.assertEqual(first_step["endCondition"]["conditionTypeKey"], "iterations")
+        self.assertIsNone(first_step["endConditionValue"])
 
     def test_round_shorthand_is_collapsed_into_repeat_group(self):
         payload = build_workout_payload(
@@ -288,6 +364,56 @@ class StructuredWorkoutStepsTests(unittest.TestCase):
         segment_steps = client.last_put_payload["workoutSegments"][0]["workoutSteps"]
         self.assertEqual(segment_steps[0]["endCondition"]["conditionTypeKey"], "iterations")
         self.assertEqual(segment_steps[1]["stepType"]["stepTypeKey"], "rest")
+
+    def test_manage_workout_update_accepts_legacy_repeat_and_sport_alias(self):
+        client = _FakeGarminClient()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = manage_workout(
+                client=cast(Any, client),
+                action="update",
+                workout_id="1474362475",
+                description="Forca B estructurada",
+                sport_type="CARDIO_TRAINING",
+                steps=[
+                    {
+                        "type": "workout_step",
+                        "stepType": "warmup",
+                        "durationType": "lap_button",
+                        "description": "Escalfament lliure",
+                    },
+                    {
+                        "stepType": "repeat",
+                        "repeatIterations": 2,
+                        "steps": [
+                            {
+                                "type": "workout_step",
+                                "durationType": "reps",
+                                "durationValue": 12,
+                                "description": "Flexions",
+                            },
+                            {
+                                "type": "workout_step",
+                                "durationType": "time",
+                                "durationValue": 45,
+                                "description": "Planxa",
+                            },
+                        ],
+                    },
+                ],
+                index_file=str(Path(tmpdir) / "scheduled_workouts_index.json"),
+                schedule_workout_fn=lambda _client, _wid, _day: {"ok": True},
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["structuredStepsApplied"])
+        self.assertEqual(result["appliedSportType"], "cardio_training")
+        self.assertIsNotNone(client.last_put_payload)
+        assert client.last_put_payload is not None
+        structured_steps = client.last_put_payload["workoutSegments"][0]["workoutSteps"]
+        self.assertEqual(structured_steps[0]["endConditionValue"], None)
+        self.assertEqual(structured_steps[1]["type"], "RepeatGroupDTO")
+        self.assertEqual(structured_steps[1]["numberOfIterations"], 2)
 
 
 if __name__ == "__main__":

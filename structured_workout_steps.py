@@ -76,6 +76,12 @@ END_CONDITION_MAP: dict[str, dict[str, Any]] = {
         "displayOrder": 2,
         "displayable": True,
     },
+    "lap_button": {
+        "conditionTypeId": ConditionType.ITERATIONS,
+        "conditionTypeKey": "iterations",
+        "displayOrder": 7,
+        "displayable": True,
+    },
 }
 
 END_CONDITION_ALIASES = {
@@ -91,6 +97,12 @@ END_CONDITION_ALIASES = {
     "heart-rate": "heart_rate",
     "cadence": "cadence",
     "power": "power",
+    "lap_button": "lap_button",
+    "lap": "lap_button",
+    "lapbutton": "lap_button",
+    "button": "lap_button",
+    "button_press": "lap_button",
+    "open": "lap_button",
 }
 
 TARGET_TYPE_MAP: dict[str, dict[str, Any]] = {
@@ -138,6 +150,9 @@ TARGET_TYPE_ALIASES = {
     "open": "open",
 }
 
+REPS_TO_SECONDS_FACTOR = 3.0
+OPEN_STEP_DEFAULT_SECONDS = 90.0
+
 def _normalize_token(value: Any) -> str:
     return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -175,6 +190,8 @@ def _parse_positive_float(raw_value: Any, *, path: str, field_name: str) -> floa
 
 
 def _parse_positive_int(raw_value: Any, *, path: str, field_name: str) -> int:
+    if raw_value is None:
+        raise ValueError(f"{path}.{field_name} is required")
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as error:
@@ -203,7 +220,10 @@ def _build_executable_step(node: dict[str, Any], *, fallback_order: int, path: s
         path=path,
         field_name="durationType",
     )
-    duration_value = _parse_positive_float(node.get("durationValue"), path=path, field_name="durationValue")
+    if duration_key == "lap_button":
+        duration_value: Optional[float] = None
+    else:
+        duration_value = _parse_positive_float(node.get("durationValue"), path=path, field_name="durationValue")
     target_key = _resolve_alias(
         node.get("targetType"),
         TARGET_TYPE_ALIASES,
@@ -233,8 +253,33 @@ def _build_executable_step(node: dict[str, Any], *, fallback_order: int, path: s
     }
 
 
+def _is_repeat_step_type(raw_step_type: Any) -> bool:
+    if raw_step_type is None:
+        return False
+    token = _normalize_token(raw_step_type)
+    return token in {"repeat", "repeat_group", "repeatgroupdto"}
+
+
+def _resolve_node_type(node: dict[str, Any], *, path: str) -> str:
+    raw_type = node.get("type")
+    if raw_type is not None:
+        resolved = _resolve_alias(raw_type, STEP_NODE_ALIASES, path=path, field_name="type")
+        if resolved == "workout_step" and _is_repeat_step_type(node.get("stepType")):
+            return "repeat_group"
+        return resolved
+
+    if _is_repeat_step_type(node.get("stepType")):
+        return "repeat_group"
+
+    has_iterations = any(node.get(field) is not None for field in ("iterations", "numberOfIterations", "repeatIterations"))
+    has_children = isinstance(node.get("steps"), list) or isinstance(node.get("workoutSteps"), list)
+    if has_iterations and has_children:
+        return "repeat_group"
+    return "workout_step"
+
+
 def _build_repeat_group(node: dict[str, Any], *, fallback_order: int, path: str) -> dict[str, Any]:
-    iterations_raw = node.get("iterations", node.get("numberOfIterations"))
+    iterations_raw = node.get("iterations", node.get("numberOfIterations", node.get("repeatIterations")))
     iterations = _parse_positive_int(iterations_raw, path=path, field_name="iterations")
 
     children_raw = node.get("steps", node.get("workoutSteps"))
@@ -269,13 +314,7 @@ def _build_structured_steps(raw_steps: list[dict[str, Any]], *, path: str = "ste
         if not isinstance(raw_node, dict):
             raise ValueError(f"{node_path} must be an object")
 
-        node_type = _resolve_alias(
-            raw_node.get("type"),
-            STEP_NODE_ALIASES,
-            path=node_path,
-            field_name="type",
-            default="workout_step",
-        )
+        node_type = _resolve_node_type(raw_node, path=node_path)
         if node_type == "repeat_group":
             payload_steps.append(_build_repeat_group(raw_node, fallback_order=index, path=node_path))
         else:
@@ -299,18 +338,32 @@ def _estimate_step_seconds(step: dict[str, Any]) -> float:
 
     end_condition = step.get("endCondition")
     condition_key = end_condition.get("conditionTypeKey") if isinstance(end_condition, dict) else None
-    if condition_key != "time":
-        return 0.0
-
     end_condition_value = step.get("endConditionValue")
-    if end_condition_value is None:
-        return 0.0
 
-    try:
-        value = float(str(end_condition_value))
-    except ValueError:
-        return 0.0
-    return max(value, 0.0)
+    if condition_key == "time":
+        if end_condition_value is None:
+            return 0.0
+        try:
+            value = float(str(end_condition_value))
+        except ValueError:
+            return 0.0
+        return max(value, 0.0)
+
+    if condition_key == "iterations":
+        if end_condition_value is None:
+            return OPEN_STEP_DEFAULT_SECONDS
+        try:
+            reps_value = float(str(end_condition_value))
+        except ValueError:
+            return OPEN_STEP_DEFAULT_SECONDS
+        if reps_value <= 0:
+            return OPEN_STEP_DEFAULT_SECONDS
+
+        description = str(step.get("description") or "").lower()
+        side_multiplier = 2.0 if "/cama" in description or "per cama" in description else 1.0
+        return reps_value * side_multiplier * REPS_TO_SECONDS_FACTOR
+
+    return 0.0
 
 
 def build_structured_steps_payload(

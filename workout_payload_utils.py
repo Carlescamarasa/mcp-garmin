@@ -24,17 +24,18 @@ SPORT_TYPE_MAP: dict[str, dict[str, Any]] = {
 }
 
 SPORT_TYPE_ALIASES = {
-    "RUNNING": "RUNNING",
-    "RUN": "RUNNING",
     "running": "RUNNING",
-    "STRENGTH": "STRENGTH",
+    "run": "RUNNING",
+    "running_training": "RUNNING",
     "strength": "STRENGTH",
     "strength_training": "STRENGTH",
-    "CARDIO": "CARDIO",
+    "strengthtraining": "STRENGTH",
     "cardio": "CARDIO",
     "cardio_training": "CARDIO",
-    "HIIT": "HIIT",
+    "cardiotraining": "CARDIO",
+    "cardio_workout": "CARDIO",
     "hiit": "HIIT",
+    "high_intensity_interval_training": "HIIT",
 }
 
 
@@ -54,7 +55,14 @@ def parse_iso_date(field_name: str, value: Optional[str]) -> str:
 def normalize_sport_type(value: Optional[str], default: str = "STRENGTH") -> str:
     if value is None:
         return default
-    normalized = SPORT_TYPE_ALIASES.get(str(value).strip(), "")
+
+    token = str(value).strip().replace("-", "_").replace(" ", "_")
+    if not token:
+        return default
+
+    normalized = SPORT_TYPE_ALIASES.get(token.lower(), "")
+    if not normalized and token.upper() in SPORT_TYPE_MAP:
+        normalized = token.upper()
     if not normalized:
         allowed = ", ".join(sorted(SPORT_TYPE_MAP.keys()))
         raise ValueError(f"sport_type must be one of: {allowed}")

@@ -37,6 +37,12 @@
     - [x] Parse round exercise lists (`12 Squats`, `30s Planxa`, etc.) into ordered structured child steps
     - [x] Add unit test to validate shorthand-to-repeat-group conversion
 
+- [x] Improve structured step compatibility for external payloads
+    - [x] Accept Garmin-style sport aliases (`CARDIO_TRAINING`, `strength_training`, etc.)
+    - [x] Accept legacy repeat shape (`stepType: "repeat"` + `repeatIterations`) in create/update
+    - [x] Accept `durationType: "lap_button"` for open steps
+    - [x] Add regression tests for aliases, legacy repeat, and lap-button flows
+
 ## Discovered During Work
 
 - [x] Fix unsupported `TargetType.HEART_RATE_ZONE` constant in running warmup step.
