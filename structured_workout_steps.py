@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from garminconnect.workout import ConditionType, StepType, TargetType
+from round_shorthand_normalizer import normalize_round_shorthand_steps
 
 
 STEP_NODE_ALIASES = {
@@ -137,7 +138,6 @@ TARGET_TYPE_ALIASES = {
     "open": "open",
 }
 
-
 def _normalize_token(value: Any) -> str:
     return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -163,9 +163,11 @@ def _resolve_alias(
 
 
 def _parse_positive_float(raw_value: Any, *, path: str, field_name: str) -> float:
+    if raw_value is None:
+        raise ValueError(f"{path}.{field_name} must be numeric")
     try:
-        value = float(raw_value)
-    except (TypeError, ValueError) as error:
+        value = float(str(raw_value))
+    except ValueError as error:
         raise ValueError(f"{path}.{field_name} must be numeric") from error
     if value <= 0:
         raise ValueError(f"{path}.{field_name} must be > 0")
@@ -319,7 +321,8 @@ def build_structured_steps_payload(
     duration_minutes: int,
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    structured_steps = _build_structured_steps(steps)
+    normalized_steps = normalize_round_shorthand_steps(steps)
+    structured_steps = _build_structured_steps(normalized_steps)
     estimated_from_steps = int(round(sum(_estimate_step_seconds(step) for step in structured_steps)))
     fallback_seconds = max(1, duration_minutes) * 60
     estimated_seconds = estimated_from_steps if estimated_from_steps > 0 else fallback_seconds

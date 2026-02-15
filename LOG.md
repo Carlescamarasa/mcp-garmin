@@ -64,3 +64,9 @@
 - Extended `garmin_manage_workout(action="update")` to accept `steps` and apply them to Garmin PUT payloads, enabling real restructuring of existing workouts.
 - Added update-specific response metadata (`structuredStepsApplied`) and duration inference from existing workout data.
 - Added regression coverage for update with structured steps in `tests/test_structured_workout_steps.py`.
+
+### Developer
+- Added round-shorthand normalization for structured steps: repeated `RONDA 1/2/3: ...` blocks are now collapsed into a single Garmin `RepeatGroupDTO`.
+- Implemented parser for round exercise tokens (`12 Squats`, `10 Rem`, `30s Planxa`) so rounds are split into ordered exercise steps instead of duplicated combined blocks.
+- Refactored shorthand normalization into `round_shorthand_normalizer.py` to keep module size below project limits.
+- Added `test_round_shorthand_is_collapsed_into_repeat_group` to validate the new behavior end to end.

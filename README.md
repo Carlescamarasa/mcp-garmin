@@ -20,6 +20,7 @@ This server now exposes only **3 MCP tools**:
       - `delete`
       - `apply_week_plan`
     - `create` and `update` support structured `steps` payloads (`workout_step` and `repeat_group`) so Garmin devices can guide reps/time/rest directly instead of only showing a free-text note.
+    - If `steps` arrive as repeated round shorthand (`RONDA 1: ...`, `RONDA 2: ...`), the server normalizes them into one repeat group with ordered child exercises.
     - `create` auto-detects `Força A/B/C` names and uses structured templates (circuits/repeat groups) instead of a generic 3-step workout.
     - When requesting `sport_type=HIIT`, Garmin may not persist custom HIIT workout types. The server applies `cardio_training` for reliability and returns explicit metadata (`requestedSportType`, `appliedSportType`, `warning`).
     - Keeps an internal local index for scheduled sessions in `scheduled_workouts_index.json`.

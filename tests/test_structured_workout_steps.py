@@ -161,6 +161,67 @@ class StructuredWorkoutStepsTests(unittest.TestCase):
                 ],
             )
 
+    def test_round_shorthand_is_collapsed_into_repeat_group(self):
+        payload = build_workout_payload(
+            name="Forca A estructurada",
+            description="Circuit per rondes",
+            sport_label="STRENGTH",
+            duration_minutes=45,
+            steps=[
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 300,
+                    "description": "Escalfament",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 900,
+                    "description": "RONDA 1: 12 Squats, 10 Rem, 10 Zancadas, 8 Flexions, 30s Planxa",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 60,
+                    "description": "Descans entre rondes",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 900,
+                    "description": "RONDA 2: 12 Squats, 10 Rem, 10 Zancadas, 8 Flexions, 30s Planxa",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 60,
+                    "description": "Descans entre rondes",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 900,
+                    "description": "RONDA 3: 12 Squats, 10 Rem, 10 Zancadas, 8 Flexions, 30s Planxa",
+                },
+                {
+                    "type": "workout_step",
+                    "durationType": "time",
+                    "durationValue": 300,
+                    "description": "Tornada a la calma",
+                },
+            ],
+        )
+
+        top_steps = payload["workoutSegments"][0]["workoutSteps"]
+        self.assertEqual(len(top_steps), 3)
+        self.assertEqual(top_steps[1]["type"], "RepeatGroupDTO")
+        self.assertEqual(top_steps[1]["numberOfIterations"], 3)
+        self.assertEqual(top_steps[1]["workoutSteps"][0]["description"], "Squats")
+        self.assertEqual(top_steps[1]["workoutSteps"][0]["endCondition"]["conditionTypeKey"], "iterations")
+        self.assertEqual(top_steps[1]["workoutSteps"][4]["description"], "Planxa")
+        self.assertEqual(top_steps[1]["workoutSteps"][5]["stepType"]["stepTypeKey"], "rest")
+
     def test_manage_workout_create_accepts_steps_without_description(self):
         client = _FakeGarminClient()
 

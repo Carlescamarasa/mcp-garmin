@@ -32,6 +32,11 @@
     - [x] Add regression test for update with structured steps
     - [x] Update docs to state `update` also supports `steps`
 
+- [x] Normalize repeated `RONDA N:` shorthand into real repeat groups
+    - [x] Detect repeated round blocks and convert them to one `repeat_group` with iterations
+    - [x] Parse round exercise lists (`12 Squats`, `30s Planxa`, etc.) into ordered structured child steps
+    - [x] Add unit test to validate shorthand-to-repeat-group conversion
+
 ## Discovered During Work
 
 - [x] Fix unsupported `TargetType.HEART_RATE_ZONE` constant in running warmup step.
