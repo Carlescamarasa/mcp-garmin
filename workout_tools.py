@@ -43,16 +43,29 @@ def _upsert_index_entry(
 
 def _infer_duration_minutes_from_workout(workout: dict[str, Any], fallback_minutes: int) -> int:
     estimated_seconds = workout.get("estimatedDurationInSecs")
-    try:
-        seconds_value = int(estimated_seconds)
-    except (TypeError, ValueError):
+    seconds_value = 0
+    if isinstance(estimated_seconds, bool):
         seconds_value = 0
+    elif isinstance(estimated_seconds, (int, float)):
+        seconds_value = int(estimated_seconds)
+    elif isinstance(estimated_seconds, str):
+        try:
+            seconds_value = int(estimated_seconds)
+        except ValueError:
+            seconds_value = 0
 
     if seconds_value <= 0:
         return bounded(fallback_minutes, 10, 480)
 
     estimated_minutes = max(1, round(seconds_value / 60))
     return bounded(estimated_minutes, 10, 480)
+
+
+def _merge_warnings(*messages: Optional[str]) -> Optional[str]:
+    parts = [message.strip() for message in messages if isinstance(message, str) and message.strip()]
+    if not parts:
+        return None
+    return " ".join(parts)
 
 
 def manage_workout(
@@ -232,6 +245,12 @@ def manage_workout(
                 "Garmin no persisteix de forma fiable workouts personalitzats amb tipus HIIT en aquest compte. "
                 "S'ha aplicat cardio_training per assegurar compatibilitat."
             )
+        description_without_steps_warning: Optional[str] = None
+        if description is not None and not has_structured_steps:
+            description_without_steps_warning = (
+                "S'ha actualitzat la descripcio, pero l'estructura interna del workout no canvia si no envies `steps`."
+            )
+        warning_update = _merge_warnings(warning_update, description_without_steps_warning)
 
         changed_fields: list[str] = []
         if new_name != current_name:
